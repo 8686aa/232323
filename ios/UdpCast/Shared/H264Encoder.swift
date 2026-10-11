@@ -190,12 +190,19 @@ public final class H264Encoder {
         // 附件数组是 CFArray<CFDictionary>，这里用 NSArray/NSDictionary 承接，
         // 比直接 `as? [[CFString: Any]]` 稳 —— 后者在部分系统版本上会转换失败，
         // 失败后就会被当成「无附件信息」而一律返回 true，导致每个帧都被误标为关键帧。
-        guard let arr = CMSampleBufferGetSampleAttachmentsArray(
+        //
+        // 注意用 `as NSArray` 而不是 `as? NSArray`：CFArray 与 NSArray 是
+        // toll-free bridged，条件转换恒成立，编译器会给出
+        // "conditional downcast is equivalent" 警告。直接用桥接转换更准确。
+        guard let cfArray = CMSampleBufferGetSampleAttachmentsArray(
                 sampleBuffer, createIfNecessary: false
-              ) as? NSArray,
-              arr.count > 0,
-              let att = arr[0] as? NSDictionary else {
+              ) else {
             return true // 无附件信息时保守当作关键帧
+        }
+
+        let arr = cfArray as NSArray
+        guard arr.count > 0, let att = arr[0] as? NSDictionary else {
+            return true
         }
 
         if let notSync = att[kCMSampleAttachmentKey_NotSync as String] as? NSNumber {

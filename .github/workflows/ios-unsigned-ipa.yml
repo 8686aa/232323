@@ -155,12 +155,24 @@ jobs:
         working-directory: ios
         continue-on-error: true
         run: |
-          # 不硬编码 Release-iphoneos：配置名一旦变化，目录名就变了
+          # 关键：-showBuildSettings 必须带上与 build 完全相同的 -derivedDataPath。
+          # 不加的话它会返回默认的 ~/Library/Developer/Xcode/DerivedData/... ，
+          # 而实际产物在 ./build/ 下，后续步骤就会找不到 app。
           DIR=$(xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
                   -configuration "$CONFIG" -sdk iphoneos \
+                  -derivedDataPath build \
                   -showBuildSettings 2>/dev/null \
                 | awk -F' = ' '/ BUILT_PRODUCTS_DIR /{print $2; exit}')
           echo "BUILT_PRODUCTS_DIR=$DIR"
+
+          # 自检：目录必须真实存在，否则退回在 build/ 里搜
+          if [ -z "$DIR" ] || [ ! -d "$DIR" ]; then
+            FOUND=$(find build/Build/Products -maxdepth 1 -type d -name '*-iphoneos' 2>/dev/null | head -1)
+            echo "路径不存在或为空，回退查找得到: $FOUND"
+            DIR="$FOUND"
+          fi
+
+          echo "最终使用: $DIR"
           echo "dir=$DIR" >> "$GITHUB_OUTPUT"
 
       - name: Verify products
@@ -173,14 +185,26 @@ jobs:
           {
             set -e
             DIR="${{ steps.locate.outputs.dir }}"
-            if [ -z "$DIR" ]; then
-              # 兜底：直接在 build 目录里找
-              DIR=$(find build/Build/Products -maxdepth 1 -type d -name '*-iphoneos' | head -1)
-              echo "BUILT_PRODUCTS_DIR 为空，回退查找得到: $DIR"
-            fi
             APP="$DIR/$SCHEME.app"
 
+            # 双保险：万一路径还是不对，直接在 build/ 里搜同名 app
+            if [ ! -d "$APP" ]; then
+              echo "在 $APP 没找到，改为搜索 build/ 目录…"
+              FOUND=$(
+                find build/Build/Products -maxdepth 2 -type d -name "$SCHEME.app" 2>/dev/null | head -1
+              )
+              if [ -n "$FOUND" ]; then
+                APP="$FOUND"
+                DIR=$(dirname "$FOUND")
+              fi
+            fi
+
             echo "== 目标 app: $APP =="
+
+            # 把 build/Products 的完整结构打出来，便于下次对照
+            echo "== build/Build/Products 结构 =="
+            find build/Build/Products -maxdepth 2 2>/dev/null | head -20 || true
+
             find "$APP" -maxdepth 3 2>&1 | head -40
 
             test -d "$APP" || { echo "错误：没有生成 $SCHEME.app"; exit 1; }
@@ -200,6 +224,7 @@ jobs:
             lipo -info "$APP/PlugIns/BroadcastExtension.appex/BroadcastExtension"
 
             echo "APP_PATH=$APP" > /tmp/ci/app_path
+            echo "校验通过"
           } > /tmp/ci/verify.log 2>&1
           cat /tmp/ci/verify.log
 
