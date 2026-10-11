@@ -6,11 +6,18 @@ name: Build unsigned IPA
 #   自签工具要自己拿证书去签，如果包已经被别的证书签过，重签会失败或残留冲突。
 #   所以这里用 CODE_SIGNING_ALLOWED=NO 跳过签名，并把可能残留的
 #   _CodeSignature 目录删掉，保证是一个干净的未签名 IPA。
+#
+# 调试说明：
+#   本工作流会把完整的构建日志回推到 ci-logs/ 目录（提交信息带 [skip ci]，
+#   所以不会递归触发）。这样在拿不到 Actions 日志下载权限时，
+#   也能通过仓库内容直接读到编译错误。
 
 on:
   push:
     branches: [main, master]
     tags: ['v*']
+    paths-ignore:
+      - 'ci-logs/**'
   pull_request:
     paths:
       - 'ios/**'
@@ -24,7 +31,7 @@ jobs:
   build:
     name: Build UdpCast (unsigned)
     runs-on: macos-14
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -34,23 +41,31 @@ jobs:
         run: |
           xcodebuild -version
           swift --version
+          xcodebuild -showsdks | grep -i ios || true
           uname -a
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
 
       - name: Generate Xcode project
         working-directory: ios
         run: |
           xcodegen generate
+          echo "== 生成的文件 =="
           ls -la
+          echo "== 工程内的 target 与 scheme =="
+          xcodebuild -list -project UdpCast.xcodeproj
 
       - name: Build (no code signing)
+        id: build
         working-directory: ios
+        continue-on-error: true
         run: |
-          set -o pipefail
-          # CODE_SIGNING_ALLOWED=NO 会让 Xcode 完全跳过签名与 entitlements 处理，
-          # 这是产出「干净未签名包」的关键。
+          mkdir -p /tmp/ci
           xcodebuild \
             -project UdpCast.xcodeproj \
             -scheme UdpCast \
@@ -63,60 +78,131 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             ENABLE_BITCODE=NO \
-            build 2>&1 | tail -60
+            build > /tmp/ci/build.log 2>&1
+          echo "xcodebuild 退出码: $?"
+          echo "== 日志尾部 =="
+          tail -80 /tmp/ci/build.log
 
       - name: Verify products
+        id: verify
+        if: steps.build.outcome == 'success'
         working-directory: ios
+        continue-on-error: true
         run: |
-          APP="build/Build/Products/Release-iphoneos/UdpCast.app"
-          echo "== app 目录结构 =="
-          find "$APP" -maxdepth 3 | head -40
+          {
+            APP="build/Build/Products/Release-iphoneos/UdpCast.app"
+            echo "== app 目录结构 =="
+            find "$APP" -maxdepth 3 2>&1 | head -40
 
-          test -d "$APP" || { echo "::error::没有生成 UdpCast.app"; exit 1; }
+            if [ ! -d "$APP" ]; then
+              echo "错误：没有生成 UdpCast.app"
+              exit 1
+            fi
 
-          # 广播扩展必须被嵌进去，否则 ReplayKit 列表里不会出现「UDP投屏」
-          test -d "$APP/PlugIns/BroadcastExtension.appex" \
-            || { echo "::error::广播扩展没有被嵌入，IPA 不可用"; exit 1; }
+            # 广播扩展必须被嵌进去，否则 ReplayKit 列表里不会出现「UDP投屏」
+            if [ ! -d "$APP/PlugIns/BroadcastExtension.appex" ]; then
+              echo "错误：广播扩展没有被嵌入，IPA 不可用"
+              exit 1
+            fi
 
-          echo "== 扩展的 Info.plist 关键项 =="
-          /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' \
-            "$APP/PlugIns/BroadcastExtension.appex/Info.plist"
-          /usr/libexec/PlistBuddy -c 'Print :UdpCastDefaultHost' \
-            "$APP/PlugIns/BroadcastExtension.appex/Info.plist" || true
+            echo "== 扩展的 Info.plist 关键项 =="
+            /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' \
+              "$APP/PlugIns/BroadcastExtension.appex/Info.plist"
+            /usr/libexec/PlistBuddy -c 'Print :UdpCastDefaultHost' \
+              "$APP/PlugIns/BroadcastExtension.appex/Info.plist" || true
 
-          echo "== 扩展二进制架构 =="
-          lipo -info "$APP/PlugIns/BroadcastExtension.appex/BroadcastExtension"
+            echo "== 扩展二进制架构 =="
+            lipo -info "$APP/PlugIns/BroadcastExtension.appex/BroadcastExtension"
+          } > /tmp/ci/verify.log 2>&1
+          cat /tmp/ci/verify.log
 
       - name: Package unsigned IPA
+        id: package
+        if: steps.build.outcome == 'success' && steps.verify.outcome == 'success'
         working-directory: ios
+        continue-on-error: true
         run: |
-          set -euo pipefail
-          APP="build/Build/Products/Release-iphoneos/UdpCast.app"
+          {
+            set -e
+            APP="build/Build/Products/Release-iphoneos/UdpCast.app"
 
-          rm -rf Payload UdpCast-unsigned.ipa
-          mkdir -p Payload
-          cp -R "$APP" Payload/
+            rm -rf Payload UdpCast-unsigned.ipa
+            mkdir -p Payload
+            cp -R "$APP" Payload/
 
-          # 彻底剥掉签名痕迹，保证是干净的未签名包
-          find Payload -name '_CodeSignature' -type d -prune -exec rm -rf {} +
-          find Payload -name 'CodeResources' -type f -delete
-          find Payload -name '*.mobileprovision' -type f -delete
-          find Payload -name 'embedded.mobileprovision' -type f -delete
+            # 彻底剥掉签名痕迹，保证是干净的未签名包
+            find Payload -name '_CodeSignature' -type d -prune -exec rm -rf {} +
+            find Payload -name 'CodeResources' -type f -delete
+            find Payload -name '*.mobileprovision' -type f -delete
 
-          zip -qry UdpCast-unsigned.ipa Payload
-          rm -rf Payload
+            zip -qry UdpCast-unsigned.ipa Payload
+            rm -rf Payload
 
-          echo "== 产物 =="
-          ls -la UdpCast-unsigned.ipa
-          echo "== IPA 内结构 =="
-          unzip -l UdpCast-unsigned.ipa | head -30
-          echo "== 确认没有残留签名 =="
-          if unzip -l UdpCast-unsigned.ipa | grep -q '_CodeSignature'; then
-            echo "::error::IPA 里仍有 _CodeSignature"; exit 1
+            echo "== 产物 =="
+            ls -la UdpCast-unsigned.ipa
+            echo "== IPA 内结构 =="
+            unzip -l UdpCast-unsigned.ipa | head -30
+
+            if unzip -l UdpCast-unsigned.ipa | grep -q '_CodeSignature'; then
+              echo "错误：IPA 里仍有 _CodeSignature"
+              exit 1
+            fi
+            echo "干净：未签名"
+          } > /tmp/ci/package.log 2>&1
+          cat /tmp/ci/package.log
+
+      # ---- 把日志回推到仓库，便于在没有日志下载权限时排查 ----
+      - name: Publish build log
+        if: always()
+        continue-on-error: true
+        run: |
+          mkdir -p ci-logs
+          {
+            echo "# CI 构建日志"
+            echo
+            echo "- 运行: #${{ github.run_number }}"
+            echo "- 提交: ${{ github.sha }}"
+            echo "- 事件: ${{ github.event_name }}"
+            echo "- 构建结果: ${{ steps.build.outcome }}"
+            echo "- 产物校验: ${{ steps.verify.outcome }}"
+            echo "- 打包结果: ${{ steps.package.outcome }}"
+            echo
+            echo '## Generate / xcodebuild -list'
+            echo '```'
+            echo "（见下方 build 日志）"
+            echo '```'
+            echo
+            echo '## Build'
+            echo '```'
+            cat /tmp/ci/build.log 2>/dev/null || echo "(无 build 日志)"
+            echo '```'
+            echo
+            echo '## Verify'
+            echo '```'
+            cat /tmp/ci/verify.log 2>/dev/null || echo "(未执行)"
+            echo '```'
+            echo
+            echo '## Package'
+            echo '```'
+            cat /tmp/ci/package.log 2>/dev/null || echo "(未执行)"
+            echo '```'
+          } > ci-logs/last-build.md
+
+          echo "日志大小: $(wc -c < ci-logs/last-build.md) 字节"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f ci-logs/last-build.md
+          if git diff --cached --quiet; then
+            echo "日志无变化，跳过提交"
+          else
+            git commit -m "ci: 构建日志 #${{ github.run_number }} [skip ci]"
+            git push origin HEAD:${GITHUB_REF_NAME} || \
+              git push origin HEAD:${{ github.event.repository.default_branch }} || true
           fi
-          echo "干净：未签名"
 
       - name: Upload artifact
+        if: steps.package.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: UdpCast-unsigned-ipa
@@ -125,7 +211,7 @@ jobs:
           retention-days: 90
 
       - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && steps.package.outcome == 'success'
         uses: softprops/action-gh-release@v2
         with:
           files: ios/UdpCast-unsigned.ipa
@@ -135,3 +221,9 @@ jobs:
 
             使用前请在 PC 上运行 `receiver/receiver.py`。
             若签名未提供 App Groups 权限，广播扩展会自动在局域网搜索接收端。
+
+      - name: Fail if build broken
+        if: steps.build.outcome != 'success' || steps.verify.outcome == 'failure' || steps.package.outcome == 'failure'
+        run: |
+          echo "构建链路失败，详情见 ci-logs/last-build.md"
+          exit 1
