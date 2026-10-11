@@ -11,6 +11,22 @@ name: Build unsigned IPA
 #   本工作流会把完整的构建日志回推到 ci-logs/ 目录（提交信息带 [skip ci]，
 #   所以不会递归触发）。这样在拿不到 Actions 日志下载权限时，
 #   也能通过仓库内容直接读到编译错误。
+#
+# ⚠️ 两个必须注意的坑（都实际踩过）：
+#
+#   1. 工程文件格式版本不匹配（首次构建失败的原因）
+#      XcodeGen 生成的是 objectVersion 77（Xcode 16 的工程格式），
+#      而 macos-14 镜像默认 Xcode 是 15.4，直接报：
+#        could not read project "UdpCast.xcodeproj"
+#        it is in a future Xcode project file format (77)
+#      对策（两步都做，双保险）：
+#        ① 显式切换到镜像里最新的 Xcode
+#        ② 生成后把 objectVersion 归一化到 56 —— Xcode 14/15/16 都能打开的保守值
+#
+#   2. 产物目录名不能硬编码
+#      早期版本写死了 build/Build/Products/Release-iphoneos。
+#      一旦 -configuration 没正确传进去，目录名就不是 Release-*，
+#      后续步骤会找不到 app。改为用 -showBuildSettings 动态取 BUILT_PRODUCTS_DIR。
 
 on:
   push:
@@ -33,16 +49,37 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 40
 
+    env:
+      SCHEME: UdpCast
+      PROJECT: UdpCast.xcodeproj
+      CONFIG: Release
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show toolchain
+      - name: Select newest Xcode
         run: |
+          set -e
+          echo "== 镜像里可用的 Xcode =="
+          ls -d /Applications/Xcode*.app 2>/dev/null || true
+          echo "== 当前默认 =="
+          xcode-select -p
+
+          # 选版本号最大的那个（sort -V 按版本排序）
+          LATEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$LATEST" ]; then
+            echo "切换为: $LATEST"
+            sudo xcode-select -s "$LATEST"
+          else
+            echo "未找到 /Applications/Xcode*.app，沿用默认"
+          fi
+
+          echo "== 切换后 =="
+          xcode-select -p
           xcodebuild -version
-          swift --version
           xcodebuild -showsdks | grep -i ios || true
-          uname -a
+          swift --version
 
       - name: Install XcodeGen
         run: |
@@ -54,11 +91,38 @@ jobs:
       - name: Generate Xcode project
         working-directory: ios
         run: |
+          set -e
           xcodegen generate
           echo "== 生成的文件 =="
           ls -la
-          echo "== 工程内的 target 与 scheme =="
-          xcodebuild -list -project UdpCast.xcodeproj
+
+      - name: Normalize project format
+        working-directory: ios
+        run: |
+          set -e
+          PBX="$PROJECT/project.pbxproj"
+          test -f "$PBX" || { echo "找不到 $PBX"; exit 1; }
+
+          echo "== 归一化前 =="
+          grep -oE 'objectVersion = [0-9]+;' "$PBX" | head -3 || true
+          grep -oE 'compatibilityVersion = "[^"]*";' "$PBX" | head -3 || true
+
+          # XcodeGen 会按最新 Xcode 的格式生成，两个字段都要一起降：
+          #   objectVersion        77 = Xcode 16 格式，Xcode 15 直接拒绝打开
+          #   compatibilityVersion "Xcode 16.0" 同样会让旧 Xcode 报错
+          # 统一降到 Xcode 14 的水平：14 / 15 / 16 都能打开。
+          # macOS 的 sed 就地修改需要 -i '' 的写法。
+          sed -i '' -E \
+            -e 's/objectVersion = [0-9]+;/objectVersion = 56;/g' \
+            -e 's/compatibilityVersion = "[^"]*";/compatibilityVersion = "Xcode 14.0";/g' \
+            "$PBX"
+
+          echo "== 归一化后 =="
+          grep -oE 'objectVersion = [0-9]+;' "$PBX" | head -3 || true
+          grep -oE 'compatibilityVersion = "[^"]*";' "$PBX" | head -3 || true
+
+          echo "== 工程里的 target / scheme / 配置 =="
+          xcodebuild -list -project "$PROJECT"
 
       - name: Build (no code signing)
         id: build
@@ -67,9 +131,9 @@ jobs:
         run: |
           mkdir -p /tmp/ci
           xcodebuild \
-            -project UdpCast.xcodeproj \
-            -scheme UdpCast \
-            -configuration Release \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIG" \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build \
@@ -79,9 +143,25 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             ENABLE_BITCODE=NO \
             build > /tmp/ci/build.log 2>&1
-          echo "xcodebuild 退出码: $?"
+          rc=$?
+          echo "xcodebuild 退出码: $rc"
           echo "== 日志尾部 =="
-          tail -80 /tmp/ci/build.log
+          tail -100 /tmp/ci/build.log
+          exit $rc
+
+      - name: Locate products
+        id: locate
+        if: steps.build.outcome == 'success'
+        working-directory: ios
+        continue-on-error: true
+        run: |
+          # 不硬编码 Release-iphoneos：配置名一旦变化，目录名就变了
+          DIR=$(xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
+                  -configuration "$CONFIG" -sdk iphoneos \
+                  -showBuildSettings 2>/dev/null \
+                | awk -F' = ' '/ BUILT_PRODUCTS_DIR /{print $2; exit}')
+          echo "BUILT_PRODUCTS_DIR=$DIR"
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
 
       - name: Verify products
         id: verify
@@ -89,30 +169,37 @@ jobs:
         working-directory: ios
         continue-on-error: true
         run: |
+          mkdir -p /tmp/ci
           {
-            APP="build/Build/Products/Release-iphoneos/UdpCast.app"
-            echo "== app 目录结构 =="
+            set -e
+            DIR="${{ steps.locate.outputs.dir }}"
+            if [ -z "$DIR" ]; then
+              # 兜底：直接在 build 目录里找
+              DIR=$(find build/Build/Products -maxdepth 1 -type d -name '*-iphoneos' | head -1)
+              echo "BUILT_PRODUCTS_DIR 为空，回退查找得到: $DIR"
+            fi
+            APP="$DIR/$SCHEME.app"
+
+            echo "== 目标 app: $APP =="
             find "$APP" -maxdepth 3 2>&1 | head -40
 
-            if [ ! -d "$APP" ]; then
-              echo "错误：没有生成 UdpCast.app"
-              exit 1
-            fi
+            test -d "$APP" || { echo "错误：没有生成 $SCHEME.app"; exit 1; }
 
             # 广播扩展必须被嵌进去，否则 ReplayKit 列表里不会出现「UDP投屏」
-            if [ ! -d "$APP/PlugIns/BroadcastExtension.appex" ]; then
-              echo "错误：广播扩展没有被嵌入，IPA 不可用"
-              exit 1
-            fi
+            test -d "$APP/PlugIns/BroadcastExtension.appex" \
+              || { echo "错误：广播扩展没有被嵌入，IPA 不可用"; exit 1; }
 
             echo "== 扩展的 Info.plist 关键项 =="
             /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' \
               "$APP/PlugIns/BroadcastExtension.appex/Info.plist"
+            echo -n "UdpCastDefaultHost = "
             /usr/libexec/PlistBuddy -c 'Print :UdpCastDefaultHost' \
-              "$APP/PlugIns/BroadcastExtension.appex/Info.plist" || true
+              "$APP/PlugIns/BroadcastExtension.appex/Info.plist" || echo "(缺失)"
 
             echo "== 扩展二进制架构 =="
             lipo -info "$APP/PlugIns/BroadcastExtension.appex/BroadcastExtension"
+
+            echo "APP_PATH=$APP" > /tmp/ci/app_path
           } > /tmp/ci/verify.log 2>&1
           cat /tmp/ci/verify.log
 
@@ -124,7 +211,8 @@ jobs:
         run: |
           {
             set -e
-            APP="build/Build/Products/Release-iphoneos/UdpCast.app"
+            APP=$(cut -d= -f2- /tmp/ci/app_path)
+            echo "打包 $APP"
 
             rm -rf Payload UdpCast-unsigned.ipa
             mkdir -p Payload
@@ -161,28 +249,27 @@ jobs:
             echo "# CI 构建日志"
             echo
             echo "- 运行: #${{ github.run_number }}"
-            echo "- 提交: ${{ github.sha }}"
+            echo "- 提交: \`${{ github.sha }}\`"
             echo "- 事件: ${{ github.event_name }}"
-            echo "- 构建结果: ${{ steps.build.outcome }}"
-            echo "- 产物校验: ${{ steps.verify.outcome }}"
-            echo "- 打包结果: ${{ steps.package.outcome }}"
+            echo "- 结果: build=${{ steps.build.outcome }} verify=${{ steps.verify.outcome }} package=${{ steps.package.outcome }}"
             echo
-            echo '## Generate / xcodebuild -list'
+            echo "## 工具链"
             echo '```'
-            echo "（见下方 build 日志）"
+            xcodebuild -version 2>&1 || true
+            echo "xcode-select: $(xcode-select -p 2>&1 || true)"
             echo '```'
             echo
-            echo '## Build'
+            echo "## Build"
             echo '```'
             cat /tmp/ci/build.log 2>/dev/null || echo "(无 build 日志)"
             echo '```'
             echo
-            echo '## Verify'
+            echo "## Verify"
             echo '```'
             cat /tmp/ci/verify.log 2>/dev/null || echo "(未执行)"
             echo '```'
             echo
-            echo '## Package'
+            echo "## Package"
             echo '```'
             cat /tmp/ci/package.log 2>/dev/null || echo "(未执行)"
             echo '```'
@@ -197,8 +284,8 @@ jobs:
             echo "日志无变化，跳过提交"
           else
             git commit -m "ci: 构建日志 #${{ github.run_number }} [skip ci]"
-            git push origin HEAD:${GITHUB_REF_NAME} || \
-              git push origin HEAD:${{ github.event.repository.default_branch }} || true
+            git push origin "HEAD:${GITHUB_REF_NAME}" || \
+              git push origin "HEAD:${{ github.event.repository.default_branch }}" || true
           fi
 
       - name: Upload artifact
