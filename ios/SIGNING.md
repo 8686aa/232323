@@ -9,34 +9,38 @@
 
 ---
 
-## 一、用 GitHub Actions 产出未签名 IPA（不需要 Mac）
+## 一、拿到未签名 IPA（不需要 Mac）
 
-> **必须是 GitHub。** 编译 iOS 需要 macOS 运行器，GitHub Actions 对公开仓库
-> 免费提供 `macos-14` 运行器（私有仓库也有免费额度）。
-> Gitee、CNB 等国内平台目前不提供免费的 macOS 运行器，跑不了这个流程。
+### 最快的方式：直接下载 Release 附件
 
-推送到 GitHub 后自动触发，也可以在 Actions 页面手动点 `Run workflow`。
+已经打好标签 `v1.0`，IPA 作为 Release 附件公开发布，**无需登录即可下载**：
+
+```
+https://github.com/8686aa/232323/releases/download/v1.0/UdpCast-unsigned.ipa
+```
+
+打开 Release 页面也行：<https://github.com/8686aa/232323/releases>
+
+下完直接跳到第三节「用全能签签名安装」。
+
+### 自己重新构建
+
+改动了 iOS 代码后想出新包，推送到 GitHub 即可自动触发，也可以在
+Actions 页面手动点 `Run workflow`：
 
 ```bash
 git add .
-git commit -m "feat: UDP 投屏工具"
-git branch -M main
-git remote add origin https://github.com/<你的用户名>/<仓库名>.git
-git push -u origin main
+git commit -m "改动说明"
+git push origin main
 ```
 
-推送完成后：
+等 5~8 分钟，在运行详情页最下方 **Artifacts** 下载 `UdpCast-unsigned-ipa`
+（这个需要登录 GitHub）。解压得到 `UdpCast-unsigned.ipa`。
 
-1. 打开仓库 → **Actions** → 左侧 `Build unsigned IPA`
-2. 等它跑完（首次约 5~8 分钟，主要是装 XcodeGen 和编译）
-3. 在运行详情页最下方 **Artifacts** 里下载 `UdpCast-unsigned-ipa`
-4. 解压得到 **`UdpCast-unsigned.ipa`**
-
-打了 `v*` 标签的话还会自动创建 Release 并挂上 IPA：
-
-```bash
-git tag v1.0 && git push origin v1.0
-```
+> 打标签会自动创建 Release 并附上 IPA，下次要发新版：
+> ```bash
+> git tag v1.1 && git push origin v1.1
+> ```
 
 产物为什么是「未签名」：工作流用 `CODE_SIGNING_ALLOWED=NO` 构建，并在打包前删掉
 `_CodeSignature`、`CodeResources` 和 `embedded.mobileprovision`。
