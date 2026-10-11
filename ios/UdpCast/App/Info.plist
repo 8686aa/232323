@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>UDP投屏</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+
+	<!-- iOS 14+ 访问局域网需要向用户申请权限，否则 UDP 发不出去 -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于在同一 Wi-Fi 下把屏幕画面发送到你的电脑（UDP 投屏）。</string>
+
+	<!-- 主 App 侧的默认值。注意：真正生效的是**广播扩展** Info.plist 里的同名键，
+	     这里保留一份是为了在 App Group 不可用时，主 App 界面也能显示一致的默认值。 -->
+	<key>UdpCastDefaultHost</key>
+	<string>0.0.0.0</string>
+	<key>UdpCastDefaultPort</key>
+	<integer>5000</integer>
+	<key>UdpCastDefaultBitrate</key>
+	<integer>8000000</integer>
+	<key>UdpCastDefaultFps</key>
+	<integer>30</integer>
+	<key>UdpCastDefaultScale</key>
+	<real>0.75</real>
+	<key>UdpCastAutoDiscover</key>
+	<true/>
+
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_udpcast._udp</string>
+	</array>
+
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string></string>
+	</dict>
+
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+</dict>
+</plist>

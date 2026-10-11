@@ -1,0 +1,25 @@
+# 统一换行符策略
+#
+# 仓库内一律 LF，避免 Windows 上的 CRLF 污染导致 macOS/Linux（含 CI 的 macos runner）
+# 出现脚本无法执行、Swift 文件混入 \r 之类的问题。
+
+* text=auto eol=lf
+
+# Windows 批处理必须 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Shell 脚本与 Gradle wrapper 必须 LF，否则在 Unix 上无法执行
+gradlew text eol=lf
+*.sh text eol=lf
+
+# 二进制文件不做任何转换
+*.jar binary
+*.apk binary
+*.aab binary
+*.ipa binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.mp4 binary

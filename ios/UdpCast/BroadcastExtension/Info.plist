@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>UDP投屏</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>XPC!</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于在同一 Wi-Fi 下把屏幕画面发送到你的电脑（UDP 投屏）。</string>
+
+	<!-- 编译期默认参数。App Group 不可用（自签场景）时，扩展就靠这里取配置。
+	     host 留成占位地址 0.0.0.0 表示「没配过」，扩展启动时会自己做局域网发现。
+	     要跳过发现、直连固定 IP，把下面这行改成你的电脑 IP 即可。 -->
+	<key>UdpCastDefaultHost</key>
+	<string>0.0.0.0</string>
+	<key>UdpCastDefaultPort</key>
+	<integer>5000</integer>
+	<key>UdpCastDefaultBitrate</key>
+	<integer>8000000</integer>
+	<key>UdpCastDefaultFps</key>
+	<integer>30</integer>
+	<key>UdpCastDefaultScale</key>
+	<real>0.75</real>
+	<key>UdpCastAutoDiscover</key>
+	<true/>
+
+	<key>NSExtension</key>
+	<dict>
+		<!-- ReplayKit「广播上传」扩展的固定扩展点标识 -->
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.broadcast-services-upload</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).SampleHandler</string>
+		<key>RPBroadcastProcessMode</key>
+		<string>RPBroadcastProcessModeSampleBuffer</string>
+	</dict>
+</dict>
+</plist>

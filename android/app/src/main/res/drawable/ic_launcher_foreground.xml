@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 显示器外框 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32,38 h44 a5,5 0 0 1 5,5 v24 a5,5 0 0 1 -5,5 h-44 a5,5 0 0 1 -5,-5 v-24 a5,5 0 0 1 5,-5 z" />
+    <!-- 屏幕内区 -->
+    <path
+        android:fillColor="#1B3A5C"
+        android:pathData="M32,42 h44 v24 h-44 z" />
+    <!-- 投屏三角 -->
+    <path
+        android:fillColor="#2196F3"
+        android:pathData="M48,45 l18,9.5 l-18,9.5 z" />
+    <!-- 底座 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M44,76 h20 v4 h-20 z" />
+</vector>

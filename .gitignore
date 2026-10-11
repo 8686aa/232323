@@ -1,0 +1,43 @@
+### Android / Gradle ###
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/captures/
+*.iml
+*.apk
+*.aab
+*.keystore
+!android/gradle/wrapper/gradle-wrapper.jar
+
+### iOS / Xcode ###
+ios/*.xcodeproj/
+ios/*.xcworkspace/
+ios/DerivedData/
+ios/build/
+ios/Payload/
+ios/UdpCast-unsigned.ipa
+*.xcuserstate
+xcuserdata/
+*.ipa
+*.dSYM.zip
+
+### Python ###
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+### 录制产物 ###
+*.h264
+udpcast_*.h264
+*.mp4
+
+### 编辑器 / 系统 ###
+.vscode/
+.DS_Store
+Thumbs.db
+
+### 本地工作记忆（不属于项目代码）###
+.workbuddy/

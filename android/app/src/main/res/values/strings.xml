@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">UDP投屏</string>
+
+    <string name="label_target">接收端地址</string>
+    <string name="label_port">端口</string>
+    <string name="label_bitrate">码率</string>
+    <string name="label_fps">帧率</string>
+    <string name="label_scale">分辨率缩放</string>
+    <string name="hint_host">例如 192.168.1.100</string>
+
+    <string name="btn_discover">搜索接收端</string>
+    <string name="btn_start">开始投屏</string>
+    <string name="btn_stop">停止投屏</string>
+
+    <string name="notif_channel_name">投屏服务</string>
+    <string name="notif_title">UDP 投屏进行中</string>
+    <string name="notif_stop">停止</string>
+</resources>

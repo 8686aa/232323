@@ -1,0 +1,91 @@
+# XcodeGen 工程描述文件
+# 用法：brew install xcodegen && cd ios && xcodegen generate && open UdpCast.xcodeproj
+
+name: UdpCast
+
+options:
+  bundleIdPrefix: com.udpcast
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    # Xcode 16 在 Swift 5 模式下仍可能对并发检查告警升级。
+    # 本项目就是传统的「子线程编码 + 主线程 UI」，明确用 minimal 避免误报变成错误。
+    SWIFT_STRICT_CONCURRENCY: minimal
+    # 用真实开发者账号签名时填 10 位 Team ID；
+    # 走「全能签」自签流程时留空即可（CI 用 CODE_SIGNING_ALLOWED=NO 跳过签名）。
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+
+# ⚠️ 关于两种签名方式
+#
+#   A. 真实开发者账号（完整能力）
+#      - 在 Xcode 里给两个 target 都开 App Groups：group.com.udpcast.sender
+#      - 此时主 App 能运行时改参数并共享给广播扩展
+#
+#   B. 全能签等自签工具（拿不到 App Groups）
+#      - 无需任何改动，也不需要删 entitlements —— CI 产出的未签名 IPA 里
+#        本来就不含签名与 entitlements，由自签工具自行决定
+#      - 代码已内置回退：扩展读自己的 Info.plist 默认值，并自行广播发现接收端
+#        （见 Shared/CastConfig.swift 与 BroadcastExtension/SampleHandler.swift）
+
+targets:
+
+  # ---------------------------------------------------------------
+  # 主 App：配置参数 + 拉起系统广播选择器
+  # ---------------------------------------------------------------
+  UdpCast:
+    type: application
+    platform: iOS
+    sources:
+      - path: UdpCast/App
+      - path: UdpCast/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.udpcast.sender
+        PRODUCT_NAME: UdpCast
+        INFOPLIST_FILE: UdpCast/App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: UdpCast/UdpCast.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+    dependencies:
+      - target: BroadcastExtension
+        embed: true
+        codeSign: true
+
+  # ---------------------------------------------------------------
+  # 广播上传扩展：真正的录屏 + 编码 + UDP 发送方
+  # ---------------------------------------------------------------
+  BroadcastExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: UdpCast/BroadcastExtension
+      - path: UdpCast/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.udpcast.sender.broadcast
+        PRODUCT_NAME: BroadcastExtension
+        INFOPLIST_FILE: UdpCast/BroadcastExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: UdpCast/BroadcastExtension/BroadcastExtension.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+
+schemes:
+  UdpCast:
+    build:
+      targets:
+        UdpCast: all
+        BroadcastExtension: all
+    run:
+      config: Debug
+    archive:
+      config: Release
