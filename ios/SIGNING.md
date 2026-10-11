@@ -92,7 +92,69 @@ zip -qry UdpCast-unsigned.ipa Payload
 
 ---
 
-## 四、App Groups 的问题（重要）
+## 四、搜不到接收端 / 投屏没画面
+
+按顺序排查，**第 1 条是最常见的原因**。
+
+### 1. 本地网络权限（iOS 14+ 必须）
+
+iOS 要求 App 获得「本地网络」权限才能访问局域网，**被拒时系统会静默丢弃所有包**，
+界面上只表现为「搜不到」，不会有任何报错。
+
+**检查路径**：设置 → 隐私与安全性 → 本地网络 → 找到「UDP投屏」→ 打开开关。
+
+> 只声明 `NSLocalNetworkUsageDescription` 是**不会弹窗**的，
+> 必须实际发起本地网络访问。而纯 UDP 广播在部分 iOS 版本上不触发弹窗，
+> 导致权限一直停留在「未决定」。
+> 所以代码里用 `NWBrowser` 做了一次 Bonjour 浏览来可靠地拉起弹窗
+> （见 `UdpDiscovery.prepareLocalNetworkPermission`），进入 App 时就会执行。
+>
+> 如果列表里**根本没有**「UDP投屏」这一项，说明权限从未被询问过 ——
+> 把 App 删掉重装，然后进 App 停留几秒等弹窗。
+
+### 2. 手机和电脑必须连同一个 Wi-Fi
+
+在 iPhone 上：设置 → 无线局域网 → 点当前网络右边的 ⓘ → 看「IP 地址」。
+
+在电脑上确认同网段：
+
+```powershell
+ipconfig
+```
+
+两边前三段相同（例如都是 `192.168.110.x`）才算同网。**不同网段广播不可能通。**
+
+> 电脑可能同时有多个 IP（有线 / 无线 / 热点 / VMware 虚拟网卡）。
+> 要填的是**和手机同网段的那个**。
+
+### 3. 手工填 IP（绕过自动发现）
+
+自动发现依赖广播，某些路由器会拦截。直接在 App 的「接收端 IP」里填电脑 IP，
+点「保存参数」→ 开始投屏。
+
+**这一步能通、自动发现不通**，就说明广播被网络环境拦了，正常现象。
+
+### 4. 电脑侧确认
+
+```bash
+cd receiver
+python receiver.py
+```
+
+- 手机点「搜索接收端」时，电脑上应出现 `[+] 已响应发现请求，来自 x.x.x.x`
+- 手机点「开始投屏」后，应出现 `[+] 收到第一个媒体包，来自 x.x.x.x`
+
+**若一条都没有**，说明包根本没到电脑 —— 回到第 1、2 条。
+
+放行防火墙（管理员 PowerShell）：
+
+```powershell
+New-NetFirewallRule -DisplayName "UDP投屏" -Direction Inbound -Protocol UDP -LocalPort 5000,5001 -Action Allow
+```
+
+---
+
+## 五、App Groups 的问题（重要）
 
 Apple 的 **App Groups 属于需要描述文件支持的 capability**。
 全能签用的个人证书 / 企业证书通常**没有**这个权限，所以主 App 保存的参数

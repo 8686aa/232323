@@ -14,6 +14,8 @@ struct ContentView: View {
     @State private var scaleIndex: Double
     @State private var status: String = "就绪"
     @State private var discovering = false
+    /// 只在首次进入时申请一次本地网络权限，避免 onAppear 反复触发
+    @State private var didPreparePermission = false
 
     /// App Group 是否可用。自签（如全能签）时通常为 false ——
     /// 此时参数无法保存，扩展会改用 Info.plist 默认值 + 自动发现。
@@ -120,6 +122,16 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("UDP投屏")
+            .onAppear {
+                // 一进 App 就申请本地网络权限：这样用户点「搜索接收端」时
+                // 权限已经就绪。否则纯 UDP 广播有可能不触发系统弹窗，
+                // 权限一直「未决定」，包被静默丢弃。
+                guard !didPreparePermission else { return }
+                didPreparePermission = true
+                DispatchQueue.global(qos: .userInitiated).async {
+                    UdpDiscovery.prepareLocalNetworkPermission()
+                }
+            }
         }
     }
 
@@ -151,16 +163,35 @@ struct ContentView: View {
 
     private func runDiscovery() {
         discovering = true
-        status = "正在广播搜索…"
+        status = "正在申请本地网络权限，然后广播搜索…"
         DispatchQueue.global(qos: .userInitiated).async {
-            let ip = UdpDiscovery.discover(timeout: 2.0)
+            // 第一步很关键：确保系统把「本地网络」权限弹窗弹出来。
+            // 只声明 NSLocalNetworkUsageDescription 是不会弹窗的，
+            // 而权限停留在「未决定」时，系统会**静默丢弃**所有出站局域网包 ——
+            // 表现就是「点了搜索什么都没发生」。
+            UdpDiscovery.prepareLocalNetworkPermission()
+
+            let report = UdpDiscovery.discoverDetailed(timeout: 2.5)
+
             DispatchQueue.main.async {
                 discovering = false
-                if let ip {
+                if let ip = report.foundHost {
                     host = ip
-                    status = "已发现接收端：\(ip)" + (appGroupOK ? "" : "\n（无法保存，扩展会自行搜索）")
+                    status = "已发现接收端：\(ip)"
+                        + (appGroupOK ? "" : "\n（无法保存到扩展，扩展会自行搜索）")
                 } else {
-                    status = "未发现接收端。请确认 PC 已运行 receiver.py，且与本机在同一局域网。"
+                    var lines = [report.summary]
+                    if !report.interfaces.isEmpty {
+                        let ifs = report.interfaces
+                            .map { "\($0.ip) → \($0.broadcast)" }
+                            .joined(separator: "\n    ")
+                        lines.append("\n本机网络接口：\n    \(ifs)")
+                    }
+                    if !report.receivedFrom.isEmpty {
+                        lines.append("\n收到过响应（但格式不匹配）："
+                                     + report.receivedFrom.joined(separator: ", "))
+                    }
+                    status = lines.joined(separator: "\n")
                 }
             }
         }
