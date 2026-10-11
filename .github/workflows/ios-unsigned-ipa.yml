@@ -49,6 +49,8 @@ jobs:
         working-directory: ios
         run: |
           set -o pipefail
+          # CODE_SIGNING_ALLOWED=NO 会让 Xcode 完全跳过签名与 entitlements 处理，
+          # 这是产出「干净未签名包」的关键。
           xcodebuild \
             -project UdpCast.xcodeproj \
             -scheme UdpCast \
@@ -60,7 +62,6 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGN_ENTITLEMENTS="" \
             ENABLE_BITCODE=NO \
             build 2>&1 | tail -60
 

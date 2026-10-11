@@ -39,7 +39,7 @@ public enum UdpDiscovery {
         var tv = timeval(tv_sec: 1, tv_usec: 0)
         _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
 
-        guard let req = CastProtocol.discoverRequest as Data? else { return nil }
+        let req = CastProtocol.discoverRequest
 
         // 主广播地址 + 各子网广播地址，各发一次
         for target in broadcastTargets {

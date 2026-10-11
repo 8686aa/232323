@@ -11,6 +11,10 @@
 
 ## 一、用 GitHub Actions 产出未签名 IPA（不需要 Mac）
 
+> **必须是 GitHub。** 编译 iOS 需要 macOS 运行器，GitHub Actions 对公开仓库
+> 免费提供 `macos-14` 运行器（私有仓库也有免费额度）。
+> Gitee、CNB 等国内平台目前不提供免费的 macOS 运行器，跑不了这个流程。
+
 推送到 GitHub 后自动触发，也可以在 Actions 页面手动点 `Run workflow`。
 
 ```bash
