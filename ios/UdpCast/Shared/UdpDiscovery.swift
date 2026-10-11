@@ -162,7 +162,13 @@ public enum UdpDiscovery {
     }
 
     /// 用 getnameinfo 取数字形式的地址（比 inet_ntoa 线程安全）
-    private static func numericHost(_ sa: UnsafeMutablePointer<sockaddr>) -> String {
+    ///
+    /// 参数用 `UnsafePointer`（只读）而不是 `UnsafeMutablePointer`：
+    /// 调用方既有可变指针（`ifa_addr`／`ifa_dstaddr`），
+    /// 也有只读指针（`withUnsafePointer` 包出来的）。
+    /// `UnsafeMutablePointer` 能隐式转成 `UnsafePointer`，反之不行，
+    /// 所以这里必须收只读版本，否则其中一边编译不过。
+    private static func numericHost(_ sa: UnsafePointer<sockaddr>) -> String {
         var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
         let r = getnameinfo(
             sa,
@@ -180,7 +186,7 @@ public enum UdpDiscovery {
     /// 由 IP 和子网掩码算广播地址（用于 ifa_dstaddr 不可用的情况）
     private static func computeBroadcast(
         ip: String,
-        mask: UnsafeMutablePointer<sockaddr>
+        mask: UnsafePointer<sockaddr>
     ) -> String? {
         guard let ipAddr = ipv4ToUInt32(ip) else { return nil }
         var m = mask.pointee
